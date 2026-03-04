@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AudioViz MVP</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+  </head>
+  <body>
+    <main class="app">
+      <h1>AudioViz MVP</h1>
+      <p class="subtitle">
+        Say commands like: <strong>red circle</strong>,
+        <strong>move left</strong>, <strong>bigger</strong>,
+        <strong>reset</strong>
+      </p>
+
+      <div class="controls">
+        <button id="toggleListen">Start Listening</button>
+        <span id="status">Idle</span>
+      </div>
+
+      <div class="stage" id="stage">
+        <div id="shape" class="shape circle red"></div>
+      </div>
+
+      <div class="command-log">
+        <span>Last command:</span>
+        <code id="lastCommand">None</code>
+      </div>
+
+      <details>
+        <summary>Supported commands</summary>
+        <ul>
+          <li>Shapes: <code>circle</code>, <code>square</code></li>
+          <li>
+            Colors: <code>red</code>, <code>blue</code>, <code>green</code>,
+            <code>yellow</code>, <code>purple</code>
+          </li>
+          <li>
+            Movement: <code>move left</code>, <code>move right</code>,
+            <code>move up</code>, <code>move down</code>
+          </li>
+          <li>Size: <code>bigger</code>, <code>smaller</code></li>
+          <li>
+            Utilities: <code>reset</code>, <code>stop listening</code>,
+            <code>start listening</code>
+          </li>
+        </ul>
+      </details>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
