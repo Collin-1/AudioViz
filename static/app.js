@@ -1,3 +1,12 @@
+// -----------------------------------------------------------------------------
+// AudioViz Client App
+// -----------------------------------------------------------------------------
+// Responsibilities:
+// 1) Listen to voice commands through the browser's Web Speech API
+// 2) Parse transcripts into shape/color/movement/utility intents
+// 3) Update the on-screen shape and debug intent output
+
+// ----- DOM references ---------------------------------------------------------
 const shapeEl = document.getElementById("shape");
 const toggleBtn = document.getElementById("toggleListen");
 const statusEl = document.getElementById("status");
@@ -5,13 +14,17 @@ const lastCommandEl = document.getElementById("lastCommand");
 const recognizedIntentsEl = document.getElementById("recognizedIntents");
 const stageEl = document.getElementById("stage");
 
+// Use vendor-prefixed SpeechRecognition on browsers that still require it.
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 
+// ----- runtime state ----------------------------------------------------------
+// Speech engine/lifecycle flags.
 let recognition = null;
 let listening = false;
 let shouldKeepListening = false;
 
+// Visual state for the single shape in the stage.
 const state = {
   x: 180,
   y: 150,
@@ -20,10 +33,12 @@ const state = {
   color: "red",
 };
 
+// ----- command dictionaries ---------------------------------------------------
 const COLORS = ["red", "blue", "green", "yellow", "purple"];
 const SHAPES = ["circle", "square"];
 const MOVE_WORDS = ["move", "go", "shift", "slide"];
 
+// Direction aliases include common speech-to-text substitutions.
 const DIRECTION_ALIASES = {
   left: ["left"],
   right: ["right", "write", "rite"],
@@ -31,10 +46,22 @@ const DIRECTION_ALIASES = {
   down: ["down", "bottom"],
 };
 
+/**
+ * Constrain a numeric value to a [min, max] range.
+ *
+ * @param {number} value - Value to constrain.
+ * @param {number} min - Lower bound.
+ * @param {number} max - Upper bound.
+ * @returns {number} Constrained value.
+ */
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * Render the shape based on current state and stage dimensions.
+ * Also clamps position so shape stays inside the stage.
+ */
 function render() {
   const maxX = stageEl.clientWidth - state.size;
   const maxY = stageEl.clientHeight - state.size;
@@ -54,11 +81,24 @@ function setStatus(text) {
   statusEl.textContent = text;
 }
 
+// Small on-screen parser debug line.
+/**
+ * Display parsed intents for command-debugging visibility.
+ *
+ * @param {string[]} tags - Parsed intent tags (e.g., "move:right").
+ */
 function updateRecognizedIntents(tags) {
   if (!recognizedIntentsEl) return;
   recognizedIntentsEl.textContent = tags.length ? tags.join(" | ") : "none";
 }
 
+// Normalize transcript text before intent parsing.
+/**
+ * Normalize transcript text to improve matching reliability.
+ *
+ * @param {string} rawCommand - Raw speech transcript.
+ * @returns {string} Lowercased, punctuation-trimmed, whitespace-normalized text.
+ */
 function normalizeCommand(rawCommand) {
   return rawCommand
     .toLowerCase()
@@ -67,10 +107,24 @@ function normalizeCommand(rawCommand) {
     .trim();
 }
 
+/**
+ * Check if command contains at least one candidate keyword.
+ *
+ * @param {string} command - Normalized command.
+ * @param {string[]} words - Candidate tokens/phrases.
+ * @returns {boolean} True when any candidate is present.
+ */
 function hasAnyWord(command, words) {
   return words.some((word) => command.includes(word));
 }
 
+/**
+ * Match direction aliases with word boundaries (prevents partial token matches).
+ *
+ * @param {string} command - Normalized command.
+ * @param {string[]} aliases - Alias list for one direction.
+ * @returns {boolean} True when any alias is found.
+ */
 function containsAlias(command, aliases) {
   const escapedAliases = aliases
     .map((alias) => alias.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"))
@@ -79,6 +133,12 @@ function containsAlias(command, aliases) {
   return pattern.test(command);
 }
 
+/**
+ * Extract all directions found in the command.
+ *
+ * @param {string} command - Normalized command.
+ * @returns {string[]} Zero or more canonical directions (left/right/up/down).
+ */
 function getDirections(command) {
   const directions = [];
   for (const [direction, aliases] of Object.entries(DIRECTION_ALIASES)) {
@@ -89,6 +149,13 @@ function getDirections(command) {
   return directions;
 }
 
+/**
+ * Determine whether command should trigger movement logic.
+ *
+ * @param {string} command - Normalized command.
+ * @param {string[]} directions - Extracted directions.
+ * @returns {boolean} True when movement should be applied.
+ */
 function shouldMove(command, directions) {
   if (directions.length === 0) return false;
   return (
@@ -98,10 +165,24 @@ function shouldMove(command, directions) {
   );
 }
 
+/**
+ * Determine whether movement should jump directly to an edge.
+ *
+ * @param {string} command - Normalized command.
+ * @returns {boolean} True when edge-jump modifiers are detected.
+ */
 function shouldJumpToEdge(command) {
   return hasAnyWord(command, ["far", "edge", "all the way", "max"]);
 }
 
+// Prefer the recognition alternative that looks most like a valid command.
+/**
+ * Score one recognition transcript alternative based on command signal strength.
+ * Higher score means "more likely to be actionable".
+ *
+ * @param {string} transcript - Candidate transcript alternative.
+ * @returns {number} Heuristic score.
+ */
 function scoreCommand(transcript) {
   const command = normalizeCommand(transcript);
   let score = 0;
@@ -117,7 +198,14 @@ function scoreCommand(transcript) {
   return score;
 }
 
+/**
+ * Choose movement distance from natural-language modifiers.
+ *
+ * @param {string} command - Normalized command.
+ * @returns {number} Pixel movement step.
+ */
 function movementStep(command) {
+  // Natural-language speed/size hints for movement distance.
   if (hasAnyWord(command, ["far", "lot", "more"])) {
     return 80;
   }
@@ -129,11 +217,20 @@ function movementStep(command) {
   return 40;
 }
 
+/**
+ * Incrementally move shape position in pixels.
+ *
+ * @param {number} dx - Horizontal delta.
+ * @param {number} dy - Vertical delta.
+ */
 function moveBy(dx, dy) {
   state.x += dx;
   state.y += dy;
 }
 
+/**
+ * Restore shape state to initial defaults.
+ */
 function resetState() {
   state.x = 180;
   state.y = 150;
@@ -142,11 +239,18 @@ function resetState() {
   state.color = "red";
 }
 
+/**
+ * Parse a single transcript and apply all supported intents.
+ * This function is the main command router for shape/color/movement/utility.
+ *
+ * @param {string} rawCommand - Raw transcript from speech recognition.
+ */
 function processCommand(rawCommand) {
   const command = normalizeCommand(rawCommand);
   if (!command) return;
 
   lastCommandEl.textContent = command;
+  // Collect parsed intents so users can see what the app understood.
   const intents = [];
 
   for (const color of COLORS) {
@@ -223,18 +327,28 @@ function processCommand(rawCommand) {
   render();
 }
 
+/**
+ * Start speech recognition (continuous mode).
+ * Sets desired listening state so reconnect logic can recover when needed.
+ */
 function startListening() {
   if (!recognition || listening) return;
   shouldKeepListening = true;
   recognition.start();
 }
 
+/**
+ * Stop speech recognition and disable auto-reconnect.
+ */
 function stopListening() {
   shouldKeepListening = false;
   if (!recognition || !listening) return;
   recognition.stop();
 }
 
+/**
+ * UI button handler for start/stop listening.
+ */
 function toggleListening() {
   if (!recognition) {
     alert(
@@ -250,6 +364,9 @@ function toggleListening() {
   }
 }
 
+/**
+ * Initialize browser speech recognition and bind lifecycle handlers.
+ */
 function initRecognition() {
   if (!SpeechRecognition) {
     setStatus("Web Speech API not supported");
@@ -257,22 +374,26 @@ function initRecognition() {
     return;
   }
 
+  // Configure browser speech recognition for continuous command input.
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = false;
   recognition.lang = "en-US";
 
+  // Fired when recognition actively starts listening to microphone input.
   recognition.onstart = () => {
     listening = true;
     setStatus("Listening...");
     toggleBtn.textContent = "Stop Listening";
   };
 
+  // Fired when recognition stops for any reason (normal stop, timeout, etc.).
   recognition.onend = () => {
     listening = false;
     setStatus("Idle");
     toggleBtn.textContent = "Start Listening";
 
+    // Auto-restart if user still expects active listening.
     if (shouldKeepListening) {
       setStatus("Reconnecting...");
       setTimeout(() => {
@@ -283,6 +404,7 @@ function initRecognition() {
     }
   };
 
+  // Fired on recognition failures (permissions, network/service, no-speech, etc.).
   recognition.onerror = (event) => {
     if (
       event.error === "not-allowed" ||
@@ -293,9 +415,11 @@ function initRecognition() {
     setStatus(`Error: ${event.error}`);
   };
 
+  // Fired when recognition returns one or more transcript alternatives.
   recognition.onresult = (event) => {
     const result = event.results[event.resultIndex];
 
+    // Pick the best alternative transcript, then parse intents.
     let bestTranscript = result[0].transcript;
     let bestScore = scoreCommand(bestTranscript);
 
@@ -312,8 +436,11 @@ function initRecognition() {
   };
 }
 
+// Keep shape within bounds when viewport changes.
 window.addEventListener("resize", render);
+// Bind UI controls.
 toggleBtn.addEventListener("click", toggleListening);
 
+// App bootstrap.
 initRecognition();
 render();
