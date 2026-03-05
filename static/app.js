@@ -23,6 +23,9 @@ const SpeechRecognition =
 let recognition = null;
 let listening = false;
 let shouldKeepListening = false;
+let restartTimerId = null;
+
+const RESTART_DELAY_MS = 400;
 
 // Visual state for the single shape in the stage.
 const state = {
@@ -79,6 +82,44 @@ function render() {
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+/**
+ * Cancel any queued recognition restart attempt.
+ */
+function clearPendingRestart() {
+  if (restartTimerId !== null) {
+    clearTimeout(restartTimerId);
+    restartTimerId = null;
+  }
+}
+
+/**
+ * Attempt to start recognition safely and recover from transient start errors.
+ */
+function safeStartRecognition() {
+  if (!recognition || listening || !shouldKeepListening) return;
+
+  try {
+    recognition.start();
+  } catch (error) {
+    setStatus(`Retrying mic... (${error.name || "start_error"})`);
+    queueRecognitionRestart();
+  }
+}
+
+/**
+ * Queue a delayed restart when the app should remain in listening mode.
+ */
+function queueRecognitionRestart() {
+  if (!shouldKeepListening || listening) return;
+
+  clearPendingRestart();
+  setStatus("Reconnecting...");
+  restartTimerId = setTimeout(() => {
+    restartTimerId = null;
+    safeStartRecognition();
+  }, RESTART_DELAY_MS);
 }
 
 // Small on-screen parser debug line.
@@ -334,7 +375,8 @@ function processCommand(rawCommand) {
 function startListening() {
   if (!recognition || listening) return;
   shouldKeepListening = true;
-  recognition.start();
+  clearPendingRestart();
+  safeStartRecognition();
 }
 
 /**
@@ -342,6 +384,7 @@ function startListening() {
  */
 function stopListening() {
   shouldKeepListening = false;
+  clearPendingRestart();
   if (!recognition || !listening) return;
   recognition.stop();
 }
@@ -378,6 +421,7 @@ function initRecognition() {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = false;
+  recognition.maxAlternatives = 5;
   recognition.lang = "en-US";
 
   // Fired when recognition actively starts listening to microphone input.
@@ -395,12 +439,7 @@ function initRecognition() {
 
     // Auto-restart if user still expects active listening.
     if (shouldKeepListening) {
-      setStatus("Reconnecting...");
-      setTimeout(() => {
-        if (!listening && shouldKeepListening) {
-          recognition.start();
-        }
-      }, 250);
+      queueRecognitionRestart();
     }
   };
 
@@ -411,28 +450,45 @@ function initRecognition() {
       event.error === "service-not-allowed"
     ) {
       shouldKeepListening = false;
+      clearPendingRestart();
+    } else if (shouldKeepListening) {
+      queueRecognitionRestart();
     }
     setStatus(`Error: ${event.error}`);
   };
 
   // Fired when recognition returns one or more transcript alternatives.
   recognition.onresult = (event) => {
-    const result = event.results[event.resultIndex];
+    let bestTranscript = "";
+    let bestScore = -1;
+    let hasFinalResult = false;
 
-    // Pick the best alternative transcript, then parse intents.
-    let bestTranscript = result[0].transcript;
-    let bestScore = scoreCommand(bestTranscript);
+    // Scan all new results and choose the best transcript candidate.
+    for (
+      let resultIndex = event.resultIndex;
+      resultIndex < event.results.length;
+      resultIndex += 1
+    ) {
+      const result = event.results[resultIndex];
+      if (!result) continue;
 
-    for (let i = 1; i < result.length; i += 1) {
-      const altTranscript = result[i].transcript;
-      const altScore = scoreCommand(altTranscript);
-      if (altScore > bestScore) {
-        bestTranscript = altTranscript;
-        bestScore = altScore;
+      if (result.isFinal) {
+        hasFinalResult = true;
+      }
+
+      for (let altIndex = 0; altIndex < result.length; altIndex += 1) {
+        const altTranscript = result[altIndex].transcript;
+        const altScore = scoreCommand(altTranscript);
+        if (altScore > bestScore) {
+          bestTranscript = altTranscript;
+          bestScore = altScore;
+        }
       }
     }
 
-    processCommand(bestTranscript);
+    if (bestTranscript && hasFinalResult) {
+      processCommand(bestTranscript);
+    }
   };
 }
 
