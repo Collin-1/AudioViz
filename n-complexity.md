@@ -204,5 +204,5 @@ Look for **what grows with input size**.
 
 Example:
 
-
+=
 ---
