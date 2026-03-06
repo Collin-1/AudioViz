@@ -204,5 +204,28 @@ Look for **what grows with input size**.
 
 Example:
 
-=
+```python
+for i in range(n):
+    for j in range(i):
+        pass
+```
+
+Iterations:
+
+```
+1 + 2 + 3 + ... + n
+```
+
+[
+= n(n+1)/2
+]
+
+Which simplifies to:
+
+[
+O(n^2)
+]
+
+Because **Big-O ignores constants and lower terms**.
+
 ---
